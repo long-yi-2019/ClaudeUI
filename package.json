@@ -1,0 +1,37 @@
+{
+  "name": "codex-session-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:lan": "concurrently -k \"npm:dev:server:lan\" \"npm:dev:client:lan\"",
+    "dev:client": "vite",
+    "dev:client:lan": "vite --host 0.0.0.0",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:server:lan": "ACCESS_MODE=lan HOST=0.0.0.0 tsx watch server/index.ts",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server/server/index.js",
+    "start:lan": "ACCESS_MODE=lan HOST=0.0.0.0 node dist/server/server/index.js",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "concurrently": "^9.2.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}
