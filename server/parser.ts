@@ -4,63 +4,72 @@ import { basename } from "node:path";
 
 import type { SessionDetail, SessionSummary, SourceScope, TranscriptEntry } from "../shared/contracts.js";
 
-type JsonLine = {
-  timestamp?: string;
-  type?: string;
-  payload?: Record<string, unknown>;
+/* ── Raw JSONL shape ── */
+
+type ContentBlock = {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  content?: unknown;
+  tool_use_id?: string;
+  thinking?: string;
 };
 
-type SessionMetaPayload = {
+type MessagePayload = {
+  role?: string;
+  content?: ContentBlock[] | string;
   id?: string;
-  timestamp?: string;
-  cwd?: string;
-  originator?: string;
-  cli_version?: string;
-  source?: string;
-  git?: {
-    repository_url?: string;
-    branch?: string;
-    commit_hash?: string;
-  };
+  model?: string;
+  stop_reason?: string;
+  usage?: Record<string, unknown>;
 };
+
+type JsonLine = {
+  type?: string;
+  timestamp?: string;
+  sessionId?: string;
+  cwd?: string;
+  gitBranch?: string;
+  message?: MessagePayload;
+  slug?: string;
+  userType?: string;
+  toolUseResult?: unknown;
+  uuid?: string;
+  parentUuid?: string;
+  version?: string;
+};
+
+/* ── Constants ── */
 
 const ENVIRONMENT_BLOCK_RE = /<environment_context>[\s\S]*?<\/environment_context>/g;
 const INSTRUCTIONS_BLOCK_RE = /<INSTRUCTIONS>[\s\S]*?<\/INSTRUCTIONS>/g;
 const OPEN_SPEC_BLOCK_RE = /<!-- OPENSPEC:START -->[\s\S]*?<!-- OPENSPEC:END -->/g;
 
-const NOISY_EVENT_TYPES = new Set(["token_count", "task_started", "task_complete", "turn_context"]);
+const BOILERPLATE_MARKERS = [
+  "AGENTS.md instructions",
+  "Repository Guidelines",
+  "OpenSpec Instructions",
+  "<environment_context>",
+  "<INSTRUCTIONS>",
+  "system-reminder",
+];
+
+const TOOL_CODE_NAMES = new Set(["Write", "Edit", "write_to_file", "create_file", "insert_code_block"]);
+
+/* ── Helpers ── */
 
 function hashFallback(value: string): string {
   return createHash("sha1").update(value).digest("hex").slice(0, 12);
 }
 
-function safeParseLine(line: string, filePath: string, lineNumber: number, warnings: string[]): JsonLine | null {
+function safeParseLine(raw: string, filePath: string, lineNumber: number, warnings: string[]): JsonLine | null {
   try {
-    return JSON.parse(line) as JsonLine;
+    return JSON.parse(raw) as JsonLine;
   } catch {
     warnings.push(`Failed to parse ${filePath}:${lineNumber}`);
     return null;
   }
-}
-
-function extractTextFromContent(content: unknown): string {
-  if (!Array.isArray(content)) {
-    return "";
-  }
-
-  const chunks = content
-    .map((item) => {
-      if (!item || typeof item !== "object") {
-        return "";
-      }
-
-      const entry = item as Record<string, unknown>;
-      const text = entry.text;
-      return typeof text === "string" ? text : "";
-    })
-    .filter(Boolean);
-
-  return chunks.join("\n").trim();
 }
 
 function cleanUserText(value: string): string {
@@ -75,194 +84,231 @@ function cleanUserText(value: string): string {
     .trim();
 }
 
-function isLikelyBoilerplate(text: string): boolean {
-  if (!text) {
-    return true;
-  }
-
-  return [
-    "AGENTS.md instructions",
-    "Repository Guidelines",
-    "OpenSpec Instructions",
-    "<environment_context>",
-    "<INSTRUCTIONS>"
-  ].some((marker) => text.includes(marker));
+function isBoilerplate(text: string): boolean {
+  if (!text) return true;
+  return BOILERPLATE_MARKERS.some((m) => text.includes(m));
 }
 
 function clampPreview(value: string, maxLength = 180): string {
-  if (value.length <= maxLength) {
-    return value;
-  }
+  if (value.length <= maxLength) return value;
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function extractMessageText(line: JsonLine): string {
-  const payload = line.payload ?? {};
-  const payloadType = payload.type;
+/* ── Content extraction ── */
 
-  if (line.type === "response_item" && payloadType === "message") {
-    return extractTextFromContent(payload.content);
+function extractTextParts(content: ContentBlock[] | string | undefined): string {
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
+      parts.push(block.text.trim());
+    }
   }
-
-  if (line.type === "event_msg" && payload.type === "agent_message") {
-    const message = payload.message;
-    return typeof message === "string" ? message.trim() : "";
-  }
-
-  if (line.type === "event_msg" && payload.type === "user_message") {
-    const message = payload.message;
-    return typeof message === "string" ? message.trim() : "";
-  }
-
-  return "";
+  return parts.join("\n\n");
 }
 
-function deriveTitleAndPreview(lines: JsonLine[], fallbackName: string): { title: string; preview: string } {
-  let threadName = "";
-  let firstMeaningfulUser = "";
-  let latestAssistant = "";
+function extractToolBlocks(content: ContentBlock[] | string | undefined): string[] {
+  if (!Array.isArray(content)) return [];
 
-  for (const line of lines) {
-    const payload = line.payload ?? {};
-    const possibleThreadName = payload.thread_name;
-    if (!threadName && typeof possibleThreadName === "string" && possibleThreadName.trim()) {
-      threadName = possibleThreadName.trim();
+  const blocks: string[] = [];
+  for (const block of content) {
+    if (block.type === "tool_use" && block.name && block.input) {
+      if (TOOL_CODE_NAMES.has(block.name)) {
+        const filePath = (block.input.file_path || block.input.path || "") as string;
+        const code = (block.input.content || block.input.new_string || "") as string;
+        if (code) {
+          const lang = guessLang(filePath);
+          const label = filePath ? basename(filePath) : block.name;
+          blocks.push(`**${block.name}** → \`${label}\`\n\n\`\`\`${lang}\n${code}\n\`\`\``);
+        }
+      } else if (block.name === "Bash" || block.name === "execute_command") {
+        const cmd = (block.input.command || "") as string;
+        if (cmd) {
+          blocks.push(`**${block.name}**\n\n\`\`\`bash\n${cmd}\n\`\`\``);
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+function guessLang(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = {
+    ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+    py: "python", rs: "rust", go: "go", java: "java",
+    css: "css", html: "html", json: "json", md: "markdown",
+    sh: "bash", yml: "yaml", yaml: "yaml", sql: "sql",
+    toml: "toml", xml: "xml", vue: "vue", svelte: "svelte",
+  };
+  return map[ext] || ext;
+}
+
+/* ── Build transcript ── */
+
+function buildTranscript(lines: JsonLine[]): TranscriptEntry[] {
+  const raw: TranscriptEntry[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineType = line.type;
+    if (!lineType || lineType === "file-history-snapshot" || lineType === "progress" || lineType === "queue-operation") {
+      continue;
     }
 
-    if (line.type === "response_item" && payload.role === "user") {
-      const rawText = extractMessageText(line);
-      const cleaned = cleanUserText(rawText);
-      if (!firstMeaningfulUser && cleaned && !isLikelyBoilerplate(cleaned)) {
-        firstMeaningfulUser = cleaned;
+    const msg = line.message;
+    if (!msg) continue;
+
+    const timestamp = line.timestamp || new Date(0).toISOString();
+    const content = msg.content;
+
+    // Determine role
+    let role: "user" | "assistant" | "developer" | "system";
+    if (lineType === "user") role = "user";
+    else if (lineType === "assistant") role = "assistant";
+    else if (lineType === "system") role = "system";
+    else continue;
+
+    // Extract text
+    const textPart = extractTextParts(content);
+    const toolBlocks = role === "assistant" ? extractToolBlocks(content) : [];
+
+    // For user lines with toolUseResult, these are tool results — hide by default
+    const isToolResult = lineType === "user" && Boolean(line.toolUseResult);
+
+    // Skip user lines that are only tool_result content blocks
+    if (role === "user" && Array.isArray(content)) {
+      const hasOnlyToolResults = content.every(
+        (b) => typeof b === "object" && b !== null && (b as ContentBlock).type === "tool_result"
+      );
+      if (hasOnlyToolResults) {
+        // Still add as hidden entry for raw view
+        raw.push({
+          id: `${timestamp}-${i}`,
+          timestamp,
+          kind: "event",
+          role: "user",
+          text: "[tool result]",
+          rawType: "tool_result",
+          rawPayload: msg,
+          hiddenByDefault: true,
+        });
+        continue;
       }
     }
 
+    // Skip thinking-only blocks
+    if (role === "assistant" && !textPart && toolBlocks.length === 0) {
+      if (Array.isArray(content) && content.some((b) => (b as ContentBlock).type === "thinking")) {
+        raw.push({
+          id: `${timestamp}-${i}`,
+          timestamp,
+          kind: "event",
+          role: "assistant",
+          text: "[thinking]",
+          rawType: "thinking",
+          rawPayload: msg,
+          hiddenByDefault: true,
+        });
+      }
+      continue;
+    }
+
+    // Combine text + tool blocks
+    const combined = [textPart, ...toolBlocks].filter(Boolean).join("\n\n---\n\n");
+    if (!combined) continue;
+
+    // Clean boilerplate from user messages
+    const finalText = role === "user" ? cleanUserText(combined) : combined;
+    if (!finalText) continue;
+
+    raw.push({
+      id: `${timestamp}-${i}`,
+      timestamp,
+      kind: "message",
+      role,
+      text: finalText,
+      rawType: lineType,
+      rawPayload: msg,
+      hiddenByDefault: isToolResult,
+    });
+  }
+
+  return mergeConsecutive(raw);
+}
+
+/* ── Merge consecutive same-role messages ── */
+
+function mergeConsecutive(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const merged: TranscriptEntry[] = [];
+
+  for (const entry of entries) {
+    const prev = merged[merged.length - 1];
+
     if (
-      (line.type === "response_item" && payload.role === "assistant") ||
-      (line.type === "event_msg" && payload.type === "agent_message")
+      prev &&
+      prev.role === entry.role &&
+      prev.hiddenByDefault === entry.hiddenByDefault &&
+      entry.kind === "message" &&
+      prev.kind === "message"
     ) {
-      const rawText = extractMessageText(line);
-      if (rawText) {
-        latestAssistant = clampPreview(rawText, 220);
+      // Merge into previous
+      prev.text = prev.text + "\n\n" + entry.text;
+      // Keep the later timestamp
+      prev.timestamp = entry.timestamp;
+    } else {
+      merged.push({ ...entry });
+    }
+  }
+
+  return merged;
+}
+
+/* ── Title / preview derivation ── */
+
+function deriveTitleAndPreview(lines: JsonLine[], fallbackName: string): { title: string; preview: string } {
+  let firstUserText = "";
+  let latestAssistantText = "";
+
+  for (const line of lines) {
+    if (line.type === "user" && line.message) {
+      const text = extractTextParts(line.message.content);
+      const cleaned = cleanUserText(text);
+      if (!firstUserText && cleaned && !isBoilerplate(cleaned)) {
+        firstUserText = cleaned;
+      }
+    }
+    if (line.type === "assistant" && line.message) {
+      const text = extractTextParts(line.message.content);
+      if (text) {
+        latestAssistantText = clampPreview(text, 220);
       }
     }
   }
 
-  const titleCandidate = threadName || firstMeaningfulUser || fallbackName;
+  const title = firstUserText || fallbackName;
   return {
-    title: clampPreview(titleCandidate, 72),
-    preview: clampPreview(firstMeaningfulUser || latestAssistant || fallbackName, 200)
+    title: clampPreview(title, 72),
+    preview: clampPreview(firstUserText || latestAssistantText || fallbackName, 200),
   };
 }
 
-function deriveRepoName(meta: SessionMetaPayload): string {
-  const repositoryUrl = meta.git?.repository_url;
-  if (repositoryUrl) {
-    const cleaned = repositoryUrl.split("/").pop()?.replace(/\.git$/i, "");
-    if (cleaned) {
-      return cleaned;
-    }
-  }
+/* ── Metadata extraction ── */
 
-  const cwd = meta.cwd?.trim();
-  return cwd ? basename(cwd) : "unknown";
+function extractMeta(lines: JsonLine[]) {
+  // Get metadata from the first meaningful line
+  const first = lines.find((l) => l.type === "user" || l.type === "assistant" || l.type === "system");
+  return {
+    sessionId: first?.sessionId || "",
+    cwd: first?.cwd || "",
+    gitBranch: first?.gitBranch || "",
+    slug: first?.slug || "",
+  };
 }
 
-function buildTranscript(lines: JsonLine[]): TranscriptEntry[] {
-  const entries: TranscriptEntry[] = [];
-
-  lines.forEach((line, index) => {
-    if (!line.type) {
-      return;
-    }
-
-    const payload = line.payload ?? {};
-    const timestamp =
-      line.timestamp ||
-      (typeof payload.timestamp === "string" ? payload.timestamp : "") ||
-      new Date(0).toISOString();
-
-    if (line.type === "response_item" && payload.type === "message") {
-      const text = extractMessageText(line);
-      if (!text) {
-        return;
-      }
-
-      const role =
-        payload.role === "user" || payload.role === "assistant" || payload.role === "developer"
-          ? payload.role
-          : "system";
-
-      entries.push({
-        id: `${timestamp}-message-${index}`,
-        timestamp,
-        kind: "message",
-        role,
-        text,
-        rawType: line.type,
-        rawPayload: payload,
-        hiddenByDefault: role === "developer"
-      });
-      return;
-    }
-
-    if (line.type === "event_msg") {
-      const eventType = typeof payload.type === "string" ? payload.type : "event_msg";
-      const text = extractMessageText(line);
-      if (!text && NOISY_EVENT_TYPES.has(eventType)) {
-        return;
-      }
-
-      entries.push({
-        id: `${timestamp}-event-${index}`,
-        timestamp,
-        kind: "event",
-        role: eventType === "agent_message" ? "assistant" : eventType === "user_message" ? "user" : "system",
-        text: text || JSON.stringify(payload, null, 2),
-        phase: typeof payload.phase === "string" ? payload.phase : undefined,
-        rawType: eventType,
-        rawPayload: payload,
-        hiddenByDefault: eventType !== "agent_message" && eventType !== "user_message"
-      });
-      return;
-    }
-  });
-
-  return dedupeTranscript(entries);
-}
-
-function normalizeTextForDedupe(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function dedupeTranscript(entries: TranscriptEntry[]): TranscriptEntry[] {
-  const deduped: TranscriptEntry[] = [];
-
-  for (const entry of entries) {
-    const previous = deduped[deduped.length - 1];
-    if (!previous) {
-      deduped.push(entry);
-      continue;
-    }
-
-    const sameRole = previous.role === entry.role;
-    const sameText = normalizeTextForDedupe(previous.text) === normalizeTextForDedupe(entry.text);
-
-    if (!sameRole || !sameText) {
-      deduped.push(entry);
-      continue;
-    }
-
-    const previousIsMessage = previous.kind === "message";
-    const nextIsMessage = entry.kind === "message";
-
-    if (!previousIsMessage && nextIsMessage) {
-      deduped[deduped.length - 1] = entry;
-    }
-  }
-
-  return deduped;
-}
+/* ── Main export ── */
 
 export function parseSessionFile(filePath: string, scope: SourceScope): SessionDetail {
   const warnings: string[] = [];
@@ -270,53 +316,54 @@ export function parseSessionFile(filePath: string, scope: SourceScope): SessionD
   const rawLines = content.split("\n").filter(Boolean);
   const lines = rawLines
     .map((line, index) => safeParseLine(line, filePath, index + 1, warnings))
-    .filter((line): line is JsonLine => Boolean(line));
+    .filter((l): l is JsonLine => Boolean(l));
 
-  const metaLine = lines.find((line) => line.type === "session_meta");
-  if (!metaLine?.payload) {
-    throw new Error(`Missing session_meta in ${filePath}`);
+  if (lines.length === 0) {
+    throw new Error(`Empty session file: ${filePath}`);
   }
 
-  const meta = metaLine.payload as SessionMetaPayload;
-  const startedAt = meta.timestamp || metaLine.timestamp || new Date(0).toISOString();
-  const lastEventAt = [...lines]
-    .reverse()
-    .find((line) => line.timestamp)?.timestamp || startedAt;
-  const repoName = deriveRepoName(meta);
-  const titlePreview = deriveTitleAndPreview(lines, `${repoName} ${new Date(startedAt).toLocaleDateString("zh-CN")}`);
+  const meta = extractMeta(lines);
+  const repoName = meta.cwd ? basename(meta.cwd) : "unknown";
+
+  // Timestamps
+  const timestamps = lines.map((l) => l.timestamp).filter(Boolean) as string[];
+  const startedAt = timestamps[0] || new Date(0).toISOString();
+  const lastEventAt = timestamps[timestamps.length - 1] || startedAt;
+
+  const titlePreview = deriveTitleAndPreview(
+    lines,
+    `${repoName} ${new Date(startedAt).toLocaleDateString("zh-CN")}`
+  );
+
   const transcript = buildTranscript(lines);
-  const userMessageCount = transcript.filter((entry) => entry.role === "user" && entry.kind === "message").length;
-  const assistantMessageCount = transcript.filter(
-    (entry) => entry.role === "assistant" && entry.kind === "message"
-  ).length;
+  const userMessageCount = transcript.filter((e) => e.role === "user" && e.kind === "message").length;
+  const assistantMessageCount = transcript.filter((e) => e.role === "assistant" && e.kind === "message").length;
 
   const summary: SessionSummary = {
-    id: `${scope}_${meta.id || hashFallback(filePath)}`,
+    id: `${scope}_${meta.sessionId || hashFallback(filePath)}`,
     filePath,
     sourceScope: scope,
     title: titlePreview.title,
     preview: titlePreview.preview,
-    cwd: meta.cwd || "",
+    cwd: meta.cwd,
     repoName,
-    branch: meta.git?.branch,
-    originator: meta.originator,
-    source: meta.source,
-    cliVersion: meta.cli_version,
+    branch: meta.gitBranch,
+    originator: undefined,
+    source: undefined,
+    cliVersion: undefined,
     startedAt,
     lastEventAt,
-    messageCount: transcript.filter((entry) => !entry.hiddenByDefault).length,
+    messageCount: transcript.filter((e) => !e.hiddenByDefault).length,
     userMessageCount,
-    assistantMessageCount
+    assistantMessageCount,
   };
 
   return {
     summary,
     git: {
-      repositoryUrl: meta.git?.repository_url,
-      branch: meta.git?.branch,
-      commitHash: meta.git?.commit_hash
+      branch: meta.gitBranch,
     },
     transcript,
-    parseWarnings: warnings
+    parseWarnings: warnings,
   };
 }

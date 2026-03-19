@@ -9,57 +9,62 @@ type SessionOptions = {
   userPrompt?: string;
   assistantReply?: string;
   cwd?: string;
-  repoUrl?: string;
 };
 
 export function createFixtureCodexHome(options: SessionOptions = {}) {
   const root = mkdtempSync(join(tmpdir(), "codex-session-browser-"));
-  const activeDir = join(root, "sessions", "2026", "03", "19");
+  const activeDir = join(root, "projects", "test-project");
   const archivedDir = join(root, "archived_sessions");
 
   mkdirSync(activeDir, { recursive: true });
   mkdirSync(archivedDir, { recursive: true });
 
   const targetDir = options.archived ? archivedDir : activeDir;
-  const filePath = join(targetDir, "rollout-2026-03-19T10-00-00-demo.jsonl");
-  const scopeSource = options.archived ? "vscode" : "cli";
+  const filePath = join(targetDir, "test-session.jsonl");
+
+  const ts1 = "2026-03-19T10:00:01.000Z";
+  const ts2 = "2026-03-19T10:00:02.000Z";
+  const cwd = options.cwd || "/workspace/demo-project";
 
   const lines = [
     JSON.stringify({
-      timestamp: "2026-03-19T10:00:00.000Z",
-      type: "session_meta",
-      payload: {
-        id: "demo-session-id",
-        timestamp: "2026-03-19T10:00:00.000Z",
-        cwd: options.cwd || "/workspace/demo-project",
-        originator: "codex-tui",
-        cli_version: "0.115.0",
-        source: scopeSource,
-        git: {
-          repository_url: options.repoUrl || "https://example.com/demo-project.git",
-          branch: "main",
-          commit_hash: "1234567890abcdef"
-        }
-      }
-    }),
-    JSON.stringify({
-      timestamp: "2026-03-19T10:00:01.000Z",
-      type: "response_item",
-      payload: {
-        type: "message",
+      type: "user",
+      timestamp: ts1,
+      sessionId: "demo-session-id",
+      cwd,
+      gitBranch: "main",
+      slug: options.title || "",
+      message: {
         role: "user",
-        thread_name: options.title,
-        content: [{ type: "input_text", text: options.userPrompt || "请帮我做一个会话浏览器" }]
-      }
+        content: [{ type: "text", text: options.userPrompt || "请帮我做一个会话浏览器" }],
+      },
+      uuid: "u1",
+      parentUuid: "",
+      version: "1",
+      userType: "external",
+      isSidechain: false,
     }),
     JSON.stringify({
-      timestamp: "2026-03-19T10:00:02.000Z",
-      type: "event_msg",
-      payload: {
-        type: "agent_message",
-        message: options.assistantReply || "可以，先把 session 列表和详情页做起来。"
-      }
-    })
+      type: "assistant",
+      timestamp: ts2,
+      sessionId: "demo-session-id",
+      cwd,
+      gitBranch: "main",
+      slug: "",
+      message: {
+        id: "msg1",
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: options.assistantReply || "可以，先把 session 列表和详情页做起来。" }],
+        model: "claude-opus-4-20250514",
+        stop_reason: "end_turn",
+      },
+      uuid: "a1",
+      parentUuid: "u1",
+      version: "1",
+      userType: "external",
+      isSidechain: false,
+    }),
   ];
 
   writeFileSync(filePath, `${lines.join("\n")}\n`, "utf8");

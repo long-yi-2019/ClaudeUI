@@ -93,7 +93,7 @@ export class SessionStore {
   private warnings: string[] = [];
 
   constructor(options: SessionStoreOptions = {}) {
-    this.codexHome = options.codexHome || `${process.env.HOME || ""}/.codex`;
+    this.codexHome = options.codexHome || `${process.env.HOME || ""}/.claude`;
   }
 
   async reindex(): Promise<void> {
@@ -103,7 +103,7 @@ export class SessionStore {
     const targets: Array<{ scope: SourceScope; files: string[] }> = [
       {
         scope: "active",
-        files: walkJsonlFiles(join(this.codexHome, "sessions"), true)
+        files: walkJsonlFiles(join(this.codexHome, "projects"), true)
       },
       {
         scope: "archived",
