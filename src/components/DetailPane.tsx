@@ -90,63 +90,65 @@ export function DetailPane({ detail, loading, showRaw, onToggleRaw }: DetailPane
   const visibleEntries = showRaw ? detail.transcript : detail.transcript.filter((entry) => !entry.hiddenByDefault);
 
   return (
-    <section className="chat-stage">
-      <div className="chat-header">
-        <div className="chat-header-main">
-          <h2>{detail.summary.title}</h2>
-          <div className="chat-header-meta">
-            <span>{detail.summary.repoName}</span>
-            <span>{shortenPath(detail.summary.cwd)}</span>
-            <span>{formatLongDateTime(detail.summary.lastEventAt)}</span>
+    <>
+      <section className="chat-stage">
+        <div className="chat-header">
+          <div className="chat-header-main">
+            <h2>{detail.summary.title}</h2>
+            <div className="chat-header-meta">
+              <span>{detail.summary.repoName}</span>
+              <span>{shortenPath(detail.summary.cwd)}</span>
+              <span>{formatLongDateTime(detail.summary.lastEventAt)}</span>
+            </div>
+          </div>
+          <div className="chat-header-actions">
+            <Badge tone="muted">{detail.summary.sourceScope === "archived" ? "归档" : "活跃"}</Badge>
+            <button type="button" className="raw-toggle" onClick={onToggleRaw}>
+              {showRaw ? "隐藏原始事件" : "显示原始事件"}
+            </button>
           </div>
         </div>
-        <div className="chat-header-actions">
-          <Badge tone="muted">{detail.summary.sourceScope === "archived" ? "归档" : "活跃"}</Badge>
-          <button type="button" className="raw-toggle" onClick={onToggleRaw}>
-            {showRaw ? "隐藏原始事件" : "显示原始事件"}
-          </button>
+
+        <div className="chat-info-strip">
+          <Badge tone="muted">branch {detail.git?.branch || "unknown"}</Badge>
+          <Badge tone="muted">commit {detail.git?.commitHash?.slice(0, 12) || "unknown"}</Badge>
+          <Badge tone="muted">started {formatLongDateTime(detail.summary.startedAt)}</Badge>
         </div>
-      </div>
 
-      <div className="chat-info-strip">
-        <Badge tone="muted">branch {detail.git?.branch || "unknown"}</Badge>
-        <Badge tone="muted">commit {detail.git?.commitHash?.slice(0, 12) || "unknown"}</Badge>
-        <Badge tone="muted">started {formatLongDateTime(detail.summary.startedAt)}</Badge>
-      </div>
+        {detail.parseWarnings.length > 0 ? (
+          <div className="inline-warning compact">
+            <Badge tone="accent">{detail.parseWarnings.length}</Badge>
+            <span>本会话存在部分解析警告</span>
+          </div>
+        ) : null}
 
-      {detail.parseWarnings.length > 0 ? (
-        <div className="inline-warning compact">
-          <Badge tone="accent">{detail.parseWarnings.length}</Badge>
-          <span>本会话存在部分解析警告</span>
-        </div>
-      ) : null}
-
-      <div className="chat-scroll" ref={scrollRef}>
-        {visibleEntries.map((entry) => (
-          <article key={entry.id} className={`chat-message role-${entry.role}`}>
-            <div className="chat-message-inner">
-              <div className="chat-message-meta">
-                <div className="chat-message-badges">
-                  <Badge
-                    tone={entry.role === "assistant" ? "accent" : entry.role === "user" ? "default" : "muted"}
-                  >
-                    {entry.role}
-                  </Badge>
-                  {showRaw ? <Badge tone="muted">{entry.rawType}</Badge> : null}
+        <div className="chat-scroll" ref={scrollRef}>
+          {visibleEntries.map((entry) => (
+            <article key={entry.id} className={`chat-message role-${entry.role}`}>
+              <div className="chat-message-inner">
+                <div className="chat-message-meta">
+                  <div className="chat-message-badges">
+                    <Badge
+                      tone={entry.role === "assistant" ? "accent" : entry.role === "user" ? "default" : "muted"}
+                    >
+                      {entry.role}
+                    </Badge>
+                    {showRaw ? <Badge tone="muted">{entry.rawType}</Badge> : null}
+                  </div>
+                  <time dateTime={entry.timestamp}>{formatLongDateTime(entry.timestamp)}</time>
                 </div>
-                <time dateTime={entry.timestamp}>{formatLongDateTime(entry.timestamp)}</time>
+                <CollapsibleBody text={entry.text} />
               </div>
-              <CollapsibleBody text={entry.text} />
-            </div>
-          </article>
-        ))}
-      </div>
+            </article>
+          ))}
+        </div>
+      </section>
 
       {showTop && (
         <button type="button" className="scroll-top-btn" onClick={scrollToTop} aria-label="回到顶部">
           ↑ 顶部
         </button>
       )}
-    </section>
+    </>
   );
 }
