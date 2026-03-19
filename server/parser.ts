@@ -80,12 +80,17 @@ function cleanUserText(value: string): string {
     .replace(/# AGENTS\.md instructions[^\n]*/g, " ")
     .replace(/##? Repository Guidelines[\s\S]*/g, " ")
     .replace(/<environment_context>[\s\S]*/g, " ")
+    .replace(/<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g, " ")
+    .replace(/<[a-z-]+>[\s\S]*?<\/[a-z-]+>/g, " ")
+    .replace(/\[Request interrupted by user[^\]]*\]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function isBoilerplate(text: string): boolean {
   if (!text) return true;
+  if (text.startsWith("[Request interrupted")) return true;
+  if (text.startsWith("<local-command-caveat>")) return true;
   return BOILERPLATE_MARKERS.some((m) => text.includes(m));
 }
 
