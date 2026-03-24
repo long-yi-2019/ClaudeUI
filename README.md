@@ -198,10 +198,6 @@ curl "http://127.0.0.1:4318/api/sessions?scope=active&sort=updated&order=desc&pa
 
 这是历史命名遗留。当前项目实际读取的是 Claude 会话数据，文案和包名已经按 Claude 调整，但环境变量名暂时还保留为 `CODEX_HOME`。
 
-### 这个项目会把我的数据提交到 GitHub 吗？
-
-不会。只要你提交的是源码，而不是把本地会话文件手动放进仓库，GitHub 上不会自动包含你的 `~/.claude` 数据。
-
 ### 点击“刷新索引”会不会改动原始数据？
 
 不会。它只会重新扫描并重建内存索引。
@@ -213,13 +209,6 @@ curl "http://127.0.0.1:4318/api/sessions?scope=active&sort=updated&order=desc&pa
 - `~/.claude/projects` 或 `~/.claude/archived_sessions` 下是否真的有会话文件
 - 是否通过 `CODEX_HOME` 指向了错误目录
 - 当前筛选条件是否过严
-
-## 发布到 GitHub 前建议
-
-- 检查仓库里没有误提交本地会话文件
-- 保持默认本地模式说明，不要把 README 写成公网服务
-- 如果你准备公开仓库，建议补 1 到 2 张界面截图
-- 如果后续真的支持 Codex，再单独说明兼容范围，不要混写 Claude 和 Codex
 
 ## 现状说明
 
