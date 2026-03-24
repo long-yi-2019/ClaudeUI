@@ -198,10 +198,6 @@ curl "http://127.0.0.1:4318/api/sessions?scope=active&sort=updated&order=desc&pa
 
 That is a historical naming leftover. The current implementation reads Claude session data, and the package name and user-facing copy have already been updated, but the environment variable is still kept as `CODEX_HOME` for now.
 
-### Will this upload my data to GitHub?
-
-No. As long as you publish the source code only and do not manually commit your local session files, your `~/.claude` data will not be included automatically.
-
 ### Does `刷新索引` modify raw data?
 
 No. It only re-scans files and rebuilds the in-memory index.
@@ -213,13 +209,6 @@ Check the following:
 - whether `~/.claude/projects` or `~/.claude/archived_sessions` actually contains session files
 - whether `CODEX_HOME` points to the wrong directory
 - whether your current filters are too restrictive
-
-## Before Publishing to GitHub
-
-- Make sure no local session files were committed by mistake
-- Keep the README framed as a local tool, not a public internet service
-- Add one or two screenshots if you want a stronger repository landing page
-- If you later add real Codex support, document compatibility separately instead of mixing Claude and Codex in the same description
 
 ## Current Limitations
 
