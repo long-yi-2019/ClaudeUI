@@ -29,7 +29,7 @@ async function main() {
   const port = Number(process.env.PORT) || 4318;
 
   app.listen(port, host, () => {
-    console.log(`Codex Session Browser listening on http://${host}:${port} (${accessMode})`);
+    console.log(`Claude Session Browser listening on http://${host}:${port} (${accessMode})`);
   });
 }
 

@@ -2,12 +2,17 @@ import type { FacetCounts, SessionSummary, SourceScope } from "../../shared/cont
 import { formatDateTime } from "../lib/format";
 import { Badge } from "./Badge";
 
+type DatePreset = "7d" | "30d" | "90d" | "year";
+
 type SidebarProps = {
   scope: "all" | SourceScope;
   repo: string;
   cwd: string;
   source: string;
   originator: string;
+  dateFrom: string;
+  dateTo: string;
+  activeDatePreset: DatePreset | null;
   facets: FacetCounts;
   warnings: string[];
   refreshing: boolean;
@@ -22,8 +27,14 @@ type SidebarProps = {
   onCwdChange: (value: string) => void;
   onSourceChange: (value: string) => void;
   onOriginatorChange: (value: string) => void;
+  onDateFromChange: (value: string) => void;
+  onDateToChange: (value: string) => void;
+  onApplyDatePreset: (preset: DatePreset) => void;
+  onClearDateRange: () => void;
   onRefresh: () => void;
   onSelect: (id: string) => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 };
 
 export function Sidebar(props: SidebarProps) {
@@ -33,6 +44,9 @@ export function Sidebar(props: SidebarProps) {
     cwd,
     source,
     originator,
+    dateFrom,
+    dateTo,
+    activeDatePreset,
     facets,
     warnings,
     refreshing,
@@ -47,14 +61,24 @@ export function Sidebar(props: SidebarProps) {
     onCwdChange,
     onSourceChange,
     onOriginatorChange,
+    onDateFromChange,
+    onDateToChange,
+    onApplyDatePreset,
+    onClearDateRange,
     onRefresh,
-    onSelect
+    onSelect,
+    onMouseEnter,
+    onMouseLeave
   } = props;
 
   return (
-    <aside className="sidebar">
+    <aside
+      className="sidebar"
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+    >
       <div className="sidebar-header">
-        <p className="sidebar-kicker">Codex Browser</p>
+        <p className="sidebar-kicker">Claude Browser</p>
         <h1>会话</h1>
         <p className="sidebar-copy">像聊天列表一样浏览历史记录，真正的对话内容放在右侧主区域。</p>
       </div>
@@ -89,6 +113,56 @@ export function Sidebar(props: SidebarProps) {
         <details className="filter-drawer">
           <summary>筛选项</summary>
           <div className="filter-grid">
+            <div className="filter-group filter-group-time">
+              <div className="filter-group-head">
+                <span>更新时间</span>
+                {(dateFrom || dateTo) ? (
+                  <button type="button" className="filter-clear" onClick={onClearDateRange}>
+                    清空时间
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="scope-switch compact time-presets">
+                {[
+                  { value: "7d" as DatePreset, label: "7天" },
+                  { value: "30d" as DatePreset, label: "30天" },
+                  { value: "90d" as DatePreset, label: "90天" },
+                  { value: "year" as DatePreset, label: "今年" }
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={activeDatePreset === option.value ? "scope-pill active" : "scope-pill"}
+                    onClick={() => onApplyDatePreset(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="date-range-grid">
+                <label>
+                  <span>开始</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={(event) => onDateFromChange(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>结束</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(event) => onDateToChange(event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
             <label>
               <span>项目</span>
               <select value={repo} onChange={(event) => onRepoChange(event.target.value)}>

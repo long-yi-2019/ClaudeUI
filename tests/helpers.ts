@@ -12,7 +12,7 @@ type SessionOptions = {
 };
 
 export function createFixtureCodexHome(options: SessionOptions = {}) {
-  const root = mkdtempSync(join(tmpdir(), "codex-session-browser-"));
+  const root = mkdtempSync(join(tmpdir(), "claude-session-browser-"));
   const activeDir = join(root, "projects", "test-project");
   const archivedDir = join(root, "archived_sessions");
 

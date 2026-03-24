@@ -5,6 +5,7 @@ import { DetailPane } from "./components/DetailPane";
 import { Sidebar } from "./components/Sidebar";
 
 type MobilePane = "sidebar" | "detail";
+type DatePreset = "7d" | "30d" | "90d" | "year";
 
 const EMPTY_FACETS = {
   repos: [],
@@ -12,6 +13,49 @@ const EMPTY_FACETS = {
   sources: [],
   originators: []
 };
+
+function formatDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(value: string, endOfDay = false): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return endOfDay
+    ? new Date(year, month - 1, day, 23, 59, 59, 999)
+    : new Date(year, month - 1, day, 0, 0, 0, 0);
+}
+
+function buildPresetRange(preset: DatePreset): { from: string; to: string } {
+  const today = new Date();
+  const end = formatDateInputValue(today);
+  const start = new Date(today);
+
+  if (preset === "year") {
+    start.setMonth(0, 1);
+  } else {
+    const days = preset === "7d" ? 7 : preset === "30d" ? 30 : 90;
+    start.setDate(start.getDate() - (days - 1));
+  }
+
+  return {
+    from: formatDateInputValue(start),
+    to: end
+  };
+}
+
+function detectDatePreset(from: string, to: string): DatePreset | null {
+  const presets: DatePreset[] = ["7d", "30d", "90d", "year"];
+  for (const preset of presets) {
+    const range = buildPresetRange(preset);
+    if (range.from === from && range.to === to) {
+      return preset;
+    }
+  }
+  return null;
+}
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -29,6 +73,8 @@ export default function App() {
   const [cwd, setCwd] = useState("");
   const [source, setSource] = useState("");
   const [originator, setOriginator] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [listState, setListState] = useState<SessionListResponse>({
     sessions: [],
     total: 0,
@@ -46,6 +92,7 @@ export default function App() {
   const [mobilePane, setMobilePane] = useState<MobilePane>("sidebar");
   const [collapsed, setCollapsed] = useState(false);
   const [error, setError] = useState("");
+  const [sidebarHovered, setSidebarHovered] = useState(false);
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -67,11 +114,44 @@ export default function App() {
     if (originator) {
       params.set("originator", originator);
     }
+    if (dateFrom) {
+      params.set("from", parseLocalDate(dateFrom).toISOString());
+    }
+    if (dateTo) {
+      params.set("to", parseLocalDate(dateTo, true).toISOString());
+    }
     params.set("sort", "updated");
     params.set("order", "desc");
     params.set("pageSize", "50");
     return params.toString();
-  }, [cwd, deferredSearch, originator, repo, scope, source]);
+  }, [cwd, dateFrom, dateTo, deferredSearch, originator, repo, scope, source]);
+
+  const activeDatePreset = useMemo(() => detectDatePreset(dateFrom, dateTo), [dateFrom, dateTo]);
+
+  const handleDateFromChange = (value: string) => {
+    setDateFrom(value);
+    if (value && dateTo && value > dateTo) {
+      setDateTo(value);
+    }
+  };
+
+  const handleDateToChange = (value: string) => {
+    setDateTo(value);
+    if (value && dateFrom && value < dateFrom) {
+      setDateFrom(value);
+    }
+  };
+
+  const handleApplyDatePreset = (preset: DatePreset) => {
+    const range = buildPresetRange(preset);
+    setDateFrom(range.from);
+    setDateTo(range.to);
+  };
+
+  const handleClearDateRange = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -196,6 +276,9 @@ export default function App() {
               cwd={cwd}
               source={source}
               originator={originator}
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              activeDatePreset={activeDatePreset}
               facets={listState.facets}
               warnings={listState.warnings}
               refreshing={refreshing}
@@ -210,20 +293,29 @@ export default function App() {
               onCwdChange={setCwd}
               onSourceChange={setSource}
               onOriginatorChange={setOriginator}
+              onDateFromChange={handleDateFromChange}
+              onDateToChange={handleDateToChange}
+              onApplyDatePreset={handleApplyDatePreset}
+              onClearDateRange={handleClearDateRange}
               onRefresh={handleRefresh}
               onSelect={handleSelect}
+              onMouseEnter={() => setSidebarHovered(true)}
+              onMouseLeave={() => setSidebarHovered(false)}
             />
           )}
         </div>
 
         <div className={mobilePane === "detail" ? "pane-mobile visible" : "pane-mobile"}>
-          {error ? <div className="global-error in-chat">{error}</div> : null}
-          <DetailPane
-            detail={detail}
-            loading={detailLoading}
-            showRaw={showRaw}
-            onToggleRaw={() => setShowRaw((value) => !value)}
-          />
+          <div className={sidebarHovered ? "chat-stage-wrapper scroll-locked" : "chat-stage-wrapper"}>
+            {error ? <div className="global-error in-chat">{error}</div> : null}
+            <DetailPane
+              detail={detail}
+              loading={detailLoading}
+              showRaw={showRaw}
+              onToggleRaw={() => setShowRaw((value) => !value)}
+              scrollLocked={sidebarHovered}
+            />
+          </div>
         </div>
       </main>
     </div>

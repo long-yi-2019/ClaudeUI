@@ -41,8 +41,8 @@ export function FiltersPane(props: FiltersPaneProps) {
     <aside className="panel panel-filters">
       <div className="panel-heading">
         <p className="eyebrow">Archive Control</p>
-        <h2>Codex 档案库</h2>
-        <p className="panel-copy">本地读取 `~/.codex`，只做浏览，不触碰原始数据。</p>
+        <h2>Claude 档案库</h2>
+        <p className="panel-copy">本地读取 `~/.claude`，只做浏览，不触碰原始数据。</p>
       </div>
 
       <div className="scope-switch">

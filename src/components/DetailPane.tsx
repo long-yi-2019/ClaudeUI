@@ -40,9 +40,10 @@ type DetailPaneProps = {
   loading: boolean;
   showRaw: boolean;
   onToggleRaw: () => void;
+  scrollLocked?: boolean;
 };
 
-export function DetailPane({ detail, loading, showRaw, onToggleRaw }: DetailPaneProps) {
+export function DetailPane({ detail, loading, showRaw, onToggleRaw, scrollLocked }: DetailPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showTop, setShowTop] = useState(false);
 
@@ -122,7 +123,7 @@ export function DetailPane({ detail, loading, showRaw, onToggleRaw }: DetailPane
           </div>
         ) : null}
 
-        <div className="chat-scroll" ref={scrollRef}>
+        <div className={scrollLocked ? "chat-scroll scroll-locked" : "chat-scroll"} ref={scrollRef}>
           {visibleEntries.map((entry) => (
             <article key={entry.id} className={`chat-message role-${entry.role}`}>
               <div className="chat-message-inner">
